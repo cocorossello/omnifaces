@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project
-	xmlns="http://maven.apache.org/POM/4.0.0"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+		xmlns="http://maven.apache.org/POM/4.0.0"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
 >
 	<modelVersion>4.0.0</modelVersion>
 
 	<groupId>org.omnifaces</groupId>
 	<artifactId>omnifaces</artifactId>
-	<version>3.14.6</version>
+	<version>3.14.6-TRAVELC.1</version>
 	<packaging>jar</packaging>
 
 	<name>OmniFaces</name>
@@ -48,10 +48,11 @@
 	</scm>
 
 	<distributionManagement>
-		<snapshotRepository>
-			<id>ossrh</id>
-			<url>https://oss.sonatype.org/content/repositories/snapshots</url>
-		</snapshotRepository>
+
+		<repository>
+			<id>nexus</id>
+			<url>https://nexus.travelcdev.com/repository/maven-releases</url>
+		</repository>
 	</distributionManagement>
 
 	<properties>
@@ -386,6 +387,7 @@
 			</plugin>
 
 			<!-- Configure snapshot deployment to Sonatype. -->
+			<!--
 			<plugin>
 				<groupId>org.sonatype.plugins</groupId>
 				<artifactId>nexus-staging-maven-plugin</artifactId>
@@ -397,6 +399,7 @@
 					<autoReleaseAfterClose>true</autoReleaseAfterClose>
 				</configuration>
 			</plugin>
+			-->
 		</plugins>
 
 		<pluginManagement>
@@ -794,6 +797,7 @@
 				<plugins>
 
 					<!-- Signing with GPG is a requirement for a release deployment to Maven central. -->
+					<!--
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-gpg-plugin</artifactId>
@@ -808,6 +812,7 @@
 							</execution>
 						</executions>
 					</plugin>
+					-->
 				</plugins>
 			</build>
 		</profile>
