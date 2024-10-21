@@ -12,21 +12,18 @@
  */
 package org.omnifaces.util.cache;
 
-import com.github.benmanes.caffeine.cache.Caffeine;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * An in-memory cache implementation that's used if the user did not configure an explicit caching provider.
  * <p>
- * For the actual implementation, {@link com.github.benmanes.caffeine.cache.Cache} is used if a maximum capacity is requested,
+ * For the actual implementation, a {@link LruCache} is used if a maximum capacity is requested,
  * otherwise a plain {@link ConcurrentHashMap} is used.
- * <p>
- * <b>See:</b> <a href="https://github.com/ben-manes/caffeine">https://github.com/ben-manes/caffeine</a>
  *
- * @author Arjan Tijms
  * @since 1.1
+ * @author Arjan Tijms
+ *
  */
 public class DefaultCache extends TimeToLiveCache {
 
@@ -37,12 +34,9 @@ public class DefaultCache extends TimeToLiveCache {
 		setCacheStore(createCacheStore(maxCapacity));
 	}
 
-	private Map<String, CacheEntry> createCacheStore(Integer maxCapacity) {
+	private static Map<String, CacheEntry> createCacheStore(Integer maxCapacity) {
 		if (maxCapacity != null) {
-			return (Map) Caffeine.newBuilder()
-					.maximumSize(maxCapacity)
-					.build()
-					.asMap();
+			return new LruCache<>(maxCapacity);
 		} else {
 			return new ConcurrentHashMap<>();
 		}

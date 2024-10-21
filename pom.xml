@@ -8,7 +8,7 @@
 
 	<groupId>org.omnifaces</groupId>
 	<artifactId>omnifaces</artifactId>
-	<version>3.14.6-TRAVELC.1</version>
+	<version>3.14.6-TRAVELC.10</version>
 	<packaging>jar</packaging>
 
 	<name>OmniFaces</name>
@@ -58,9 +58,9 @@
 	<properties>
 
 		<!-- Java versions. -->
-		<javase.version>1.8</javase.version>
+		<javase.version>11</javase.version>
 		<javaee.version>8</javaee.version>
-		<javadoc.version>1.8</javadoc.version>
+		<javadoc.version>11</javadoc.version>
 
 		<!-- Essential Maven defaults. -->
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -87,9 +87,9 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.github.ben-manes.caffeine</groupId>
-			<artifactId>caffeine</artifactId>
-			<version>2.9.3</version>
+			<groupId>jakarta.annotation</groupId>
+			<artifactId>jakarta.annotation-api</artifactId>
+			<version>1.3.5</version>
 		</dependency>
 
 		<!-- Java EE 8 dependencies. -->
@@ -230,7 +230,7 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[1.8,9)</version>
+                                    <version>[11,17)</version>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
@@ -365,9 +365,10 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>
-				<version>3.6.2</version>
+				<version>3.10.0</version>
 				<configuration>
-					<javadocVersion>${javadoc.version}</javadocVersion>
+					<javadocExecutable>${java.home}/bin/javadoc</javadocExecutable>
+					<javadocVersion>${javase.version}</javadocVersion>
 					<notimestamp>true</notimestamp>
 					<splitindex>true</splitindex>
 					<doclint>all,-missing</doclint>

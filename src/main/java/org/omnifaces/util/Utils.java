@@ -14,7 +14,7 @@ package org.omnifaces.util;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptyList;
-import static java.util.Collections.unmodifiableMap;
+import static java.util.function.Predicate.not;
 import static java.util.logging.Level.FINEST;
 import static java.util.regex.Pattern.quote;
 import static org.omnifaces.util.FacesLocal.getRequestDomainURL;
@@ -34,7 +34,6 @@ import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
-import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.net.URLConnection;
@@ -43,8 +42,6 @@ import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.text.ParseException;
@@ -69,16 +66,16 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -91,18 +88,20 @@ import javax.faces.application.Resource;
 import javax.faces.context.FacesContext;
 import javax.servlet.http.Part;
 
+import org.omnifaces.cdi.config.DateProducer.TemporalDate;
+
 /**
  * <p>
  * Collection of general utility methods that do not fit in one of the more specific classes.
  *
- * <h3>This class is not listed in showcase! Should I use it?</h3>
+ * <h2>This class is not listed in showcase! Should I use it?</h2>
  * <p>
- * This class is indeed intented for internal usage only. We won't add methods here on user request. We only add methods
+ * This class is indeed intended for internal usage only. We won't add methods here on user request. We only add methods
  * here once we encounter non-DRY code in OmniFaces codebase. The methods may be renamed/changed without notice.
  * <p>
- * We don't stop you from using it if you think you find it useful, but you'd really better pick e.g. Google Guava or
- * perhaps the good 'ol Apache Commons. This Utils class exists because OmniFaces intends to be free of 3rd party
- * dependencies.
+ * We don't stop you from using it if you found it in the Javadoc and you think you find it useful, but you have to
+ * accept the risk that the method signatures can be changed without notice. This utility class exists because OmniFaces
+ * intends to be free of 3rd party dependencies.
  *
  * @author Arjan Tijms
  * @author Bauke Scholtz
@@ -124,7 +123,6 @@ public final class Utils {
 	private static final int UNICODE_BEGIN_PRINTABLE_ASCII = 0x20;
 	private static final Map<Class<?>, Object> PRIMITIVE_DEFAULTS = collectPrimitiveDefaults();
 	private static final Map<Class<?>, Class<?>> PRIMITIVE_TYPES = collectPrimitiveTypes();
-	private static final String ERROR_UNSUPPORTED_ENCODING = "UTF-8 is apparently not supported on this platform.";
 	private static final String ERROR_UNSUPPORTED_DATE = "Only java.util.Date, java.util.Calendar and java.time.Temporal are supported.";
 	private static final String ERROR_UNSUPPORTED_TIMEZONE = "Only java.lang.String, java.util.TimeZone and java.time.ZoneId are supported.";
 
@@ -137,29 +135,29 @@ public final class Utils {
 	// Initialization -------------------------------------------------------------------------------------------------
 
 	private static Map<Class<?>, Object> collectPrimitiveDefaults() {
-		Map<Class<?>, Object> primitiveDefaults = new HashMap<>();
-		primitiveDefaults.put(boolean.class, false);
-		primitiveDefaults.put(byte.class, (byte) 0);
-		primitiveDefaults.put(short.class, (short) 0);
-		primitiveDefaults.put(char.class, (char) 0);
-		primitiveDefaults.put(int.class, 0);
-		primitiveDefaults.put(long.class, (long) 0);
-		primitiveDefaults.put(float.class, (float) 0);
-		primitiveDefaults.put(double.class, (double) 0);
-		return unmodifiableMap(primitiveDefaults);
+		return Map.of(
+				boolean.class, false,
+				byte.class, (byte) 0,
+				short.class, (short) 0,
+				char.class, (char) 0,
+				int.class, 0,
+				long.class, (long) 0,
+				float.class, (float) 0,
+				double.class, (double) 0
+		);
 	}
 
 	private static Map<Class<?>, Class<?>> collectPrimitiveTypes() {
-		Map<Class<?>, Class<?>> primitiveTypes = new HashMap<>();
-		primitiveTypes.put(Boolean.class, boolean.class);
-		primitiveTypes.put(Byte.class, byte.class);
-		primitiveTypes.put(Short.class, short.class);
-		primitiveTypes.put(Character.class, char.class);
-		primitiveTypes.put(Integer.class, int.class);
-		primitiveTypes.put(Long.class, long.class);
-		primitiveTypes.put(Float.class, float.class);
-		primitiveTypes.put(Double.class, double.class);
-		return unmodifiableMap(primitiveTypes);
+		return Map.of(
+				Boolean.class, boolean.class,
+				Byte.class, byte.class,
+				Short.class, short.class,
+				Character.class, char.class,
+				Integer.class, int.class,
+				Long.class, long.class,
+				Float.class, float.class,
+				Double.class, double.class
+		);
 	}
 
 	// Lang -----------------------------------------------------------------------------------------------------------
@@ -198,7 +196,7 @@ public final class Utils {
 	 * @since 2.6
 	 */
 	public static boolean isEmpty(Part part) {
-		return part == null || (isEmpty(getSubmittedFileName(part)) && part.getSize() <= 0);
+		return part == null || isEmpty(getSubmittedFileName(part)) && part.getSize() <= 0;
 	}
 
 	/**
@@ -211,13 +209,13 @@ public final class Utils {
 			return true;
 		}
 		else if (value instanceof String) {
-			return isEmpty((String) value);
+			return ((String) value).isEmpty();
 		}
 		else if (value instanceof Collection) {
-			return isEmpty((Collection<?>) value);
+			return ((Collection<?>) value).isEmpty();
 		}
 		else if (value instanceof Map) {
-			return isEmpty((Map<?, ?>) value);
+			return ((Map<?, ?>) value).isEmpty();
 		}
 		else if (value instanceof Part) {
 			return isEmpty((Part) value);
@@ -237,13 +235,7 @@ public final class Utils {
 	 * @since 1.8
 	 */
 	public static boolean isAnyEmpty(Object... values) {
-		for (Object value : values) {
-			if (isEmpty(value)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(values).anyMatch(Utils::isEmpty);
 	}
 
 	/**
@@ -255,7 +247,7 @@ public final class Utils {
 	 * @since 1.5
 	 */
 	public static boolean isBlank(String string) {
-		return isEmpty(string) || string.trim().isEmpty();
+		return isEmpty(string) || string.isBlank();
 	}
 
 	/**
@@ -268,7 +260,8 @@ public final class Utils {
 	public static boolean isNumber(String string) {
 		try {
 			// Performance tests taught that this approach is in general faster than regex or char-by-char checking.
-			return Long.valueOf(string) != null;
+			Long.parseLong(string);
+			return true;
 		}
 		catch (Exception ignore) {
 			logger.log(FINEST, "Ignoring thrown exception; the sole intent is to return false instead.", ignore);
@@ -286,7 +279,8 @@ public final class Utils {
 	public static boolean isDecimal(String string) {
 		try {
 			// Performance tests taught that this approach is in general faster than regex or char-by-char checking.
-			return Double.valueOf(string) != null;
+			Double.parseDouble(string);
+			return true;
 		}
 		catch (Exception ignore) {
 			logger.log(FINEST, "Ignoring thrown exception; the sole intent is to return false instead.", ignore);
@@ -304,13 +298,7 @@ public final class Utils {
 	 */
 	@SafeVarargs
 	public static <T> T coalesce(T... objects) {
-		for (T object : objects) {
-			if (object != null) {
-				return object;
-			}
-		}
-
-		return null;
+		return stream(objects).filter(Objects::nonNull).findFirst().orElse(null);
 	}
 
 	/**
@@ -322,13 +310,7 @@ public final class Utils {
 	 */
 	@SafeVarargs
 	public static <T> boolean isOneOf(T object, T... objects) {
-		for (Object other : objects) {
-			if (Objects.equals(object, other)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(objects).anyMatch(other -> Objects.equals(object, other));
 	}
 
 	/**
@@ -339,13 +321,7 @@ public final class Utils {
 	 * @since 1.4
 	 */
 	public static boolean startsWithOneOf(String string, String... prefixes) {
-		for (String prefix : prefixes) {
-			if (string.startsWith(prefix)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(prefixes).anyMatch(string::startsWith);
 	}
 
 	/**
@@ -356,13 +332,7 @@ public final class Utils {
 	 * @since 3.1
 	 */
 	public static boolean endsWithOneOf(String string, String... suffixes) {
-		for (String suffix : suffixes) {
-			if (string.endsWith(suffix)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(suffixes).anyMatch(string::endsWith);
 	}
 
 	/**
@@ -373,13 +343,7 @@ public final class Utils {
 	 * @since 2.0
 	 */
 	public static boolean isOneInstanceOf(Class<?> cls, Class<?>... classes) {
-		for (Class<?> other : classes) {
-			if (cls == null ? other == null : other.isAssignableFrom(cls)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(classes).anyMatch(other -> cls == null ? other == null : other.isAssignableFrom(cls));
 	}
 
 	/**
@@ -391,13 +355,7 @@ public final class Utils {
 	 */
 	@SafeVarargs
 	public static boolean isOneAnnotationPresent(Class<?> cls, Class<? extends Annotation>... annotations) {
-		for (Class<? extends Annotation> annotation : annotations) {
-			if (cls.isAnnotationPresent(annotation)) {
-				return true;
-			}
-		}
-
-		return false;
+		return stream(annotations).anyMatch(cls::isAnnotationPresent);
 	}
 
 	/**
@@ -424,6 +382,56 @@ public final class Utils {
 		return cls.isPrimitive() ? cls : PRIMITIVE_TYPES.get(cls);
 	}
 
+	/**
+	 * Returns the class loader associated with given object.
+	 * If the given object is {@code null}, then just return {@link Thread#getContextClassLoader()} of {@link Thread#currentThread()}.
+	 * Else if the given object is an instance of {@link ClassLoader} already, return it right away.
+	 * Else if the given object is an instance of {@link Class}, then return {@link Class#getClassLoader()}.
+	 * Else return the {@link ClassLoader} of {@link Object#getClass()}.
+	 * @param object The object to return associated class loader for.
+	 * @return The class loader associated with given object.
+	 * @since 4.3
+	 */
+	public static ClassLoader getClassLoader(Object object) {
+		if (object == null) {
+			return Thread.currentThread().getContextClassLoader();
+		}
+		else if (object instanceof ClassLoader) {
+			return (ClassLoader) object;
+		}
+		else if (object instanceof Class) {
+			return ((Class<?>) object).getClassLoader();
+		}
+		else {
+			return object.getClass().getClassLoader();
+		}
+	}
+
+	/**
+	 * Split given string on given delimiter and makes sure each part is already trimmed via {@link String#trim()} and
+	 * that any empty strings are already filtered.
+	 * @param string String to split.
+	 * @param delimiter Delimiter to split on.
+	 * @return A stream of the split parts, already trimmed, will not contain empty strings.
+	 * @since 4.5
+	 */
+	public static Stream<String> splitAndTrim(String string, String delimiter) {
+		return stream(string.split(quote(delimiter))).map(String::trim).filter(not(String::isEmpty));
+	}
+
+	/**
+	 * Split given string on given delimiter until the given threshold and makes sure each part is already trimmed via
+	 * {@link String#trim()}.
+	 * @param string String to split.
+	 * @param delimiter Delimiter to split on.
+	 * @param limit the result threshold, as described in {@link String#split(String, int)}.
+	 * @return An array of the split parts, already trimmed, can contain empty strings.
+	 * @since 4.5
+	 */
+	public static String[] splitAndTrim(String string, String delimiter, int limit) {
+		return stream(string.split(quote(delimiter), limit)).map(String::trim).toArray(String[]::new);
+	}
+
 	// I/O ------------------------------------------------------------------------------------------------------------
 
 	/**
@@ -436,11 +444,11 @@ public final class Utils {
 	 * @throws IOException When an I/O error occurs.
 	 */
 	public static long stream(InputStream input, OutputStream output) throws IOException {
-		try (ReadableByteChannel inputChannel = Channels.newChannel(input);
-			WritableByteChannel outputChannel = Channels.newChannel(output))
+		try (var inputChannel = Channels.newChannel(input);
+			 var outputChannel = Channels.newChannel(output))
 		{
-			ByteBuffer buffer = ByteBuffer.allocateDirect(DEFAULT_STREAM_BUFFER_SIZE);
-			long size = 0;
+			var buffer = ByteBuffer.allocateDirect(DEFAULT_STREAM_BUFFER_SIZE);
+			var size = 0L;
 
 			while (inputChannel.read(buffer) != -1) {
 				buffer.flip();
@@ -469,10 +477,11 @@ public final class Utils {
 			return stream(new FileInputStream(file), output);
 		}
 
-		try (FileChannel fileChannel = (FileChannel) Files.newByteChannel(file.toPath(), StandardOpenOption.READ)) {
-			WritableByteChannel outputChannel = Channels.newChannel(output);
-			ByteBuffer buffer = ByteBuffer.allocateDirect(DEFAULT_STREAM_BUFFER_SIZE);
-			long size = 0;
+		try (var fileChannel = (FileChannel) Files.newByteChannel(file.toPath(), StandardOpenOption.READ);
+			 var outputChannel = Channels.newChannel(output))
+		{
+			var buffer = ByteBuffer.allocateDirect(DEFAULT_STREAM_BUFFER_SIZE);
+			var size = 0L;
 
 			while (fileChannel.read(buffer, start + size) != -1) {
 				buffer.flip();
@@ -503,7 +512,7 @@ public final class Utils {
 	 * @since 2.0
 	 */
 	public static byte[] toByteArray(InputStream input) throws IOException {
-		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		var output = new ByteArrayOutputStream();
 		stream(input, output);
 		return output.toByteArray();
 	}
@@ -537,28 +546,13 @@ public final class Utils {
 	 * @since 2.4
 	 */
 	public static boolean isSerializable(Object object) {
-		try (ObjectOutputStream output = new ObjectOutputStream(new NullOutputStream())) {
+		try (var output = new ObjectOutputStream(OutputStream.nullOutputStream())) {
 			output.writeObject(object);
 			return true;
 		}
 		catch (IOException ignore) {
 			logger.log(FINEST, "Ignoring thrown exception; the sole intent is to return false instead.", ignore);
 			return false;
-		}
-	}
-
-	private static final class NullOutputStream extends OutputStream {
-		@Override
-		public void write(int b) throws IOException {
-			// NOOP.
-		}
-		@Override
-		public void write(byte[] b) throws IOException {
-			// NOOP.
-		}
-		@Override
-		public void write(byte[] b, int off, int len) throws IOException {
-			// NOOP.
 		}
 	}
 
@@ -576,18 +570,14 @@ public final class Utils {
 	 */
 	@SuppressWarnings("unchecked")
 	public static <E> Set<E> unmodifiableSet(Object... values) {
-		Set<E> set = new HashSet<>();
+		var set = new HashSet<E>();
 
-		for (Object value : values) {
+		for (var value : values) {
 			if (value instanceof Object[]) {
-				for (Object item : (Object[]) value) {
-					set.add((E) item);
-				}
+				stream((E[]) value).forEach(set::add);
 			}
 			else if (value instanceof Collection<?>) {
-				for (Object item : (Collection<?>) value) {
-					set.add((E) item);
-				}
+				stream((Collection<E>) value).forEach(set::add);
 			}
 			else {
 				set.add((E) value);
@@ -617,12 +607,8 @@ public final class Utils {
 			return new ArrayList<>((Collection<E>) iterable);
 		}
 		else {
-			List<E> list = new ArrayList<>();
-			Iterator<E> iterator = iterable.iterator();
-			while (iterator.hasNext()) {
-				list.add(iterator.next());
-			}
-
+			var list = new ArrayList<E>();
+			iterable.forEach(list::add);
 			return list;
 		}
 	}
@@ -674,10 +660,10 @@ public final class Utils {
 			return emptyList();
 		}
 
-		List<String> list = new ArrayList<>();
+		var list = new ArrayList<String>();
 
-		for (String value : values.split(quote(delimiter))) {
-			String trimmedValue = value.trim();
+		for (var value : values.split(quote(delimiter))) {
+			var trimmedValue = value.trim();
 			if (!isEmpty(trimmedValue)) {
 				list.add(trimmedValue);
 			}
@@ -697,11 +683,8 @@ public final class Utils {
 	 * @return the reverse of the given map
 	 */
 	public static <T> Map<T, T> reverse(Map<T, T> source) {
-		Map<T, T> target = new HashMap<>();
-		for (Entry<T, T> entry : source.entrySet()) {
-			target.put(entry.getValue(), entry.getKey());
-		}
-
+		var target = new HashMap<T, T>();
+		source.entrySet().forEach(entry -> target.put(entry.getValue(), entry.getKey()));
 		return target;
 	}
 
@@ -714,15 +697,8 @@ public final class Utils {
 	 * @since 1.6
 	 */
 	public static boolean containsByClassName(Collection<?> objects, String className) {
-		Class<?> cls = toClassOrNull(className);
-
-		for (Object object : objects) {
-			if (object.getClass() == cls) {
-				return true;
-			}
-		}
-
-		return false;
+		var cls = toClassOrNull(className);
+		return stream(objects).anyMatch(object -> object.getClass() == cls);
 	}
 
 	/**
@@ -749,8 +725,11 @@ public final class Utils {
 		if (object == null) {
 			return Stream.empty();
 		}
+		if (object instanceof Collection) {
+			return ((Collection<T>) object).stream();
+		}
 		if (object instanceof Iterable) {
-			return (Stream<T>) StreamSupport.stream(((Iterable<?>) object).spliterator(), false);
+			return StreamSupport.stream(((Iterable<T>) object).spliterator(), false);
 		}
 		else if (object instanceof Map) {
 			return (Stream<T>) ((Map<?, ?>) object).entrySet().stream();
@@ -822,27 +801,28 @@ public final class Utils {
 	// Dates ----------------------------------------------------------------------------------------------------------
 
 	/**
-	 * Formats the given {@link Date} to a string in RFC1123 format. This format is used in HTTP headers and in
-	 * JavaScript <code>Date</code> constructor.
-	 * @param date The <code>Date</code> to be formatted to a string in RFC1123 format.
+	 * Formats the given {@link Date} to a string in <a href="https://datatracker.ietf.org/doc/html/rfc1123">RFC 1123</a>
+	 * format. This format is used in HTTP headers and in JavaScript <code>Date</code> constructor.
+	 * @param date The <code>Date</code> to be formatted to a string in RFC 1123 format.
 	 * @return The formatted string.
 	 * @since 1.2
 	 */
 	public static String formatRFC1123(Date date) {
-		SimpleDateFormat sdf = new SimpleDateFormat(PATTERN_RFC1123_DATE, Locale.US);
+		var sdf = new SimpleDateFormat(PATTERN_RFC1123_DATE, Locale.US);
 		sdf.setTimeZone(TIMEZONE_GMT);
 		return sdf.format(date);
 	}
 
 	/**
-	 * Parses the given string in RFC1123 format to a {@link Date} object.
-	 * @param string The string in RFC1123 format to be parsed to a <code>Date</code> object.
+	 * Parses the given string in <a href="https://datatracker.ietf.org/doc/html/rfc1123">RFC 1123</a> format to a
+	 * {@link Date} object.
+	 * @param string The string in RFC 1123 format to be parsed to a <code>Date</code> object.
 	 * @return The parsed <code>Date</code>.
-	 * @throws ParseException When the given string is not in RFC1123 format.
+	 * @throws ParseException When the given string is not in RFC 1123 format.
 	 * @since 1.2
 	 */
 	public static Date parseRFC1123(String string) throws ParseException {
-		SimpleDateFormat sdf = new SimpleDateFormat(PATTERN_RFC1123_DATE, Locale.US);
+		var sdf = new SimpleDateFormat(PATTERN_RFC1123_DATE, Locale.US);
 		return sdf.parse(string);
 	}
 
@@ -854,6 +834,8 @@ public final class Utils {
 	 * When <code>D</code> is {@link Temporal} and supports {@link ChronoField#CLOCK_HOUR_OF_DAY}, then return {@link ZoneId#systemDefault()}.
 	 * When <code>D</code> is {@link Temporal} and supports neither, then return {@link ZoneOffset#UTC}.
 	 * @param <D> The date type, can be {@code null}, {@link Date}, {@link Calendar} or {@link Temporal}.
+	 * @param date The <code>D</code> to obtain {@link ZoneId} from.
+	 * @return {@link ZoneId} obtained from <code>D</code>.
 	 * @throws IllegalArgumentException When date is not {@link Date}, {@link Calendar} or {@link Temporal}.
 	 * @since 3.6
 	 */
@@ -865,7 +847,7 @@ public final class Utils {
 			return ((Calendar) date).getTimeZone().toZoneId();
 		}
 		else if (date instanceof Temporal) {
-			Temporal temporal = (Temporal) date;
+			var temporal = (Temporal) date;
 
 			if (temporal.isSupported(ChronoField.OFFSET_SECONDS)) {
 				return ZoneId.from((Temporal) date);
@@ -889,6 +871,8 @@ public final class Utils {
 	 * When <code>Z</code> is {@link TimeZone}, then return {@link TimeZone#toZoneId()}.
 	 * When <code>Z</code> is {@link String}, then return {@link ZoneId#of(String)}.
 	 * @param <Z> The timezone type, can be {@code null}, {@link String}, {@link TimeZone} or {@link ZoneId}.
+	 * @param timezone The <code>Z</code> to convert to {@link ZoneId}.
+	 * @return {@link ZoneId} converted from <code>Z</code>.
 	 * @throws IllegalArgumentException When <code>Z</code> is not {@code null}, {@link ZoneId}, {@link TimeZone} or {@link String}.
 	 * @since 3.6
 	 */
@@ -914,6 +898,8 @@ public final class Utils {
 	 * Convert <code>D</code> to {@link ZonedDateTime}.
 	 * This method is guaranteed repeatable when combined with {@link #fromZonedDateTime(ZonedDateTime, Class)}.
 	 * @param <D> The date type, can be {@link Date}, {@link Calendar} or {@link Temporal}.
+	 * @param date The <code>D</code> to convert to {@link ZonedDateTime}.
+	 * @return {@link ZonedDateTime} converted from <code>D</code>.
 	 * @throws IllegalArgumentException When date is not {@link Date}, {@link Calendar} or {@link Temporal}.
 	 * @since 3.6
 	 */
@@ -922,7 +908,7 @@ public final class Utils {
 			return null;
 		}
 
-		ZoneId zone = getZoneId(date);
+		var zone = getZoneId(date);
 
 		if (date instanceof java.util.Date) {
 			return ZonedDateTime.ofInstant(Instant.ofEpochMilli(((java.util.Date) date).getTime()), zone);
@@ -949,7 +935,10 @@ public final class Utils {
 			return ((OffsetTime) date).atDate(LocalDate.now()).toZonedDateTime();
 		}
 		else if (date instanceof LocalTime) {
-			return (((LocalTime) date).atDate(LocalDate.now())).atZone(zone);
+			return ((LocalTime) date).atDate(LocalDate.now()).atZone(zone);
+		}
+		else if (date instanceof TemporalDate) {
+			return ((TemporalDate) date).getZonedDateTime();
 		}
 		else if (date instanceof Temporal) {
 			return fromTemporalToZonedDateTime((Temporal) date, zone);
@@ -961,18 +950,18 @@ public final class Utils {
 
 	private static ZonedDateTime fromTemporalToZonedDateTime(Temporal temporal, ZoneId zone) {
 		if (temporal.isSupported(ChronoField.INSTANT_SECONDS)) {
-			long epoch = temporal.getLong(ChronoField.INSTANT_SECONDS);
-			long nano = temporal.getLong(ChronoField.NANO_OF_SECOND);
+			var epoch = temporal.getLong(ChronoField.INSTANT_SECONDS);
+			var nano = temporal.getLong(ChronoField.NANO_OF_SECOND);
 			return ZonedDateTime.ofInstant(Instant.ofEpochSecond(epoch, nano), zone);
 		}
 
-		int year = temporal.isSupported(ChronoField.YEAR) ? temporal.get(ChronoField.YEAR) : 1;
-		int month = temporal.isSupported(ChronoField.MONTH_OF_YEAR) ? temporal.get(ChronoField.MONTH_OF_YEAR) : 1;
-		int day = temporal.isSupported(ChronoField.DAY_OF_MONTH) ? temporal.get(ChronoField.DAY_OF_MONTH) : 1;
-		int hour = temporal.isSupported(ChronoField.HOUR_OF_DAY) ? temporal.get(ChronoField.HOUR_OF_DAY) : 0;
-		int minute = temporal.isSupported(ChronoField.MINUTE_OF_HOUR) ? temporal.get(ChronoField.MINUTE_OF_HOUR) : 0;
-		int second = temporal.isSupported(ChronoField.SECOND_OF_MINUTE) ? temporal.get(ChronoField.SECOND_OF_MINUTE) : 0;
-		int nano = temporal.isSupported(ChronoField.NANO_OF_SECOND) ? temporal.get(ChronoField.NANO_OF_SECOND) : 0;
+		var year = temporal.isSupported(ChronoField.YEAR) ? temporal.get(ChronoField.YEAR) : 1;
+		var month = temporal.isSupported(ChronoField.MONTH_OF_YEAR) ? temporal.get(ChronoField.MONTH_OF_YEAR) : 1;
+		var day = temporal.isSupported(ChronoField.DAY_OF_MONTH) ? temporal.get(ChronoField.DAY_OF_MONTH) : 1;
+		var hour = temporal.isSupported(ChronoField.HOUR_OF_DAY) ? temporal.get(ChronoField.HOUR_OF_DAY) : 0;
+		var minute = temporal.isSupported(ChronoField.MINUTE_OF_HOUR) ? temporal.get(ChronoField.MINUTE_OF_HOUR) : 0;
+		var second = temporal.isSupported(ChronoField.SECOND_OF_MINUTE) ? temporal.get(ChronoField.SECOND_OF_MINUTE) : 0;
+		var nano = temporal.isSupported(ChronoField.NANO_OF_SECOND) ? temporal.get(ChronoField.NANO_OF_SECOND) : 0;
 		return ZonedDateTime.of(year, month, day, hour, minute, second, nano, zone);
 	}
 
@@ -980,6 +969,9 @@ public final class Utils {
 	 * Convert {@link ZonedDateTime} to <code>D</code>.
 	 * This method is guaranteed repeatable when combined with {@link #toZonedDateTime(Object)}.
 	 * @param <D> The date type, can be {@link Date}, {@link Calendar} or {@link Temporal} or any of its subclasses.
+	 * @param zonedDateTime The {@link ZonedDateTime} to convert to <code>D</code>.
+	 * @param type The type of <code>D</code>.
+	 * @return <code>D</code> converted from {@link ZonedDateTime}.
 	 * @throws NullPointerException When type is <code>null</code>.
 	 * @throws IllegalArgumentException When type is not {@link Date}, {@link Calendar} or {@link Temporal} or any of its subclasses.
 	 * @since 3.6
@@ -989,7 +981,23 @@ public final class Utils {
 		if (zonedDateTime == null) {
 			return null;
 		}
-		else if (java.sql.Timestamp.class.isAssignableFrom(type)) {
+		else if (java.util.Date.class.isAssignableFrom(type)) {
+			return fromZonedDateTimeToDate(zonedDateTime, (Class<Date>) type);
+		}
+		else if (Calendar.class.isAssignableFrom(type)) {
+			return fromZonedDateTimeToCalendar(zonedDateTime);
+		}
+		else if (Temporal.class.isAssignableFrom(type)) {
+			return fromZonedDateTimeToTemporal(zonedDateTime, (Class<Temporal>) type);
+		}
+		else {
+			throw new IllegalArgumentException(ERROR_UNSUPPORTED_DATE);
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private static <D> D fromZonedDateTimeToDate(ZonedDateTime zonedDateTime, Class<? extends Date> type) {
+		if (java.sql.Timestamp.class.isAssignableFrom(type)) {
 			return (D) new java.sql.Timestamp(zonedDateTime.toInstant().toEpochMilli());
 		}
 		else if (java.sql.Date.class.isAssignableFrom(type)) {
@@ -998,53 +1006,53 @@ public final class Utils {
 		else if (java.sql.Time.class.isAssignableFrom(type)) {
 			return (D) new java.sql.Time(zonedDateTime.toInstant().toEpochMilli());
 		}
-		else if (java.util.Date.class.isAssignableFrom(type)) {
-			return (D) java.util.Date.from(zonedDateTime.toInstant());
-		}
-		else if (Calendar.class.isAssignableFrom(type)) {
-			Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(zonedDateTime.getZone()));
-			calendar.setTime(java.util.Date.from(zonedDateTime.toInstant()));
-			return (D) calendar;
-		}
-		else if (type == Instant.class) {
-			return (D) zonedDateTime.toInstant();
-		}
-		else if (type == ZonedDateTime.class) {
-			return (D) zonedDateTime;
-		}
-		else if (type == OffsetDateTime.class) {
-			return (D) zonedDateTime.toOffsetDateTime();
-		}
-		else if (type == LocalDateTime.class) {
-			return (D) zonedDateTime.toLocalDateTime();
-		}
-		else if (type == LocalDate.class) {
-			return (D) zonedDateTime.toLocalDate();
-		}
-		else if (type == OffsetTime.class) {
-			return (D) zonedDateTime.toOffsetDateTime().toOffsetTime();
-		}
-		else if (type == LocalTime.class) {
-			return (D) zonedDateTime.toLocalDateTime().toLocalTime();
-		}
-		else if (Temporal.class.isAssignableFrom(type)) {
-			return fromZonedDateTimeToTemporal(zonedDateTime, type);
-		}
 		else {
-			throw new IllegalArgumentException(ERROR_UNSUPPORTED_DATE);
+			return (D) java.util.Date.from(zonedDateTime.toInstant());
 		}
 	}
 
 	@SuppressWarnings("unchecked")
-	private static <T extends Temporal> T fromZonedDateTimeToTemporal(ZonedDateTime zonedDateTime, Class<?> type) {
+	private static <C> C fromZonedDateTimeToCalendar(ZonedDateTime zonedDateTime) {
+		var calendar = Calendar.getInstance(TimeZone.getTimeZone(zonedDateTime.getZone()));
+		calendar.setTime(java.util.Date.from(zonedDateTime.toInstant()));
+		return (C) calendar;
+	}
+
+	@SuppressWarnings("unchecked")
+	private static <T> T fromZonedDateTimeToTemporal(ZonedDateTime zonedDateTime, Class<? extends Temporal> type) {
+		if (type == Instant.class) {
+			return (T) zonedDateTime.toInstant();
+		}
+		else if (type == ZonedDateTime.class) {
+			return (T) zonedDateTime;
+		}
+		else if (type == OffsetDateTime.class) {
+			return (T) zonedDateTime.toOffsetDateTime();
+		}
+		else if (type == LocalDateTime.class) {
+			return (T) zonedDateTime.toLocalDateTime();
+		}
+		else if (type == LocalDate.class) {
+			return (T) zonedDateTime.toLocalDate();
+		}
+		else if (type == OffsetTime.class) {
+			return (T) zonedDateTime.toOffsetDateTime().toOffsetTime();
+		}
+		else if (type == LocalTime.class) {
+			return (T) zonedDateTime.toLocalDateTime().toLocalTime();
+		}
+		else if (TemporalDate.class.isAssignableFrom(type)) {
+			return (T) new TemporalDate(zonedDateTime);
+		}
+
 		// Basically finds public static method in T which takes 1 argument of Temporal.class and returns T.
 		// This matches Temporal#from(TemporalAccessor) methods of all known Temporal subclasses listed above.
 		// There might be custom implementations supporting this as well although this is undocumented.
 		// We just try our best :)
-		Optional<Method> converter = stream(type.getMethods()).filter(method
-			-> Modifier.isPublic(method.getModifiers()) && Modifier.isStatic(method.getModifiers())
-			&& method.getParameterCount() == 1 && method.getParameterTypes()[0].isAssignableFrom(Temporal.class)
-			&& type.isAssignableFrom(method.getReturnType())
+		var converter = stream(type.getMethods()).filter(method
+				-> Modifier.isPublic(method.getModifiers()) && Modifier.isStatic(method.getModifiers())
+				&& method.getParameterCount() == 1 && method.getParameterTypes()[0].isAssignableFrom(Temporal.class)
+				&& type.isAssignableFrom(method.getReturnType())
 		).findFirst();
 
 		try {
@@ -1081,12 +1089,12 @@ public final class Utils {
 			return (Locale) locale;
 		}
 		else {
-			String localeString = locale.toString();
+			var localeString = locale.toString();
 
 			if (PATTERN_ISO639_ISO3166_LOCALE.matcher(localeString).matches()) {
-				String[] languageAndCountry = localeString.split("_");
-				String language = languageAndCountry[0];
-				String country = languageAndCountry.length > 1 ? languageAndCountry[1] : "";
+				var languageAndCountry = localeString.split("_");
+				var language = languageAndCountry[0];
+				var country = languageAndCountry.length > 1 ? languageAndCountry[1] : "";
 				return new Locale(language, country);
 			}
 			else {
@@ -1113,8 +1121,8 @@ public final class Utils {
 		}
 
 		try {
-			InputStream raw = new ByteArrayInputStream(string.getBytes(UTF_8));
-			ByteArrayOutputStream deflated = new ByteArrayOutputStream();
+			var raw = new ByteArrayInputStream(string.getBytes(UTF_8));
+			var deflated = new ByteArrayOutputStream();
 			stream(raw, new DeflaterOutputStream(deflated, new Deflater(Deflater.BEST_COMPRESSION)));
 			return Base64.getUrlEncoder().withoutPadding().encodeToString(deflated.toByteArray());
 		}
@@ -1138,7 +1146,7 @@ public final class Utils {
 		}
 
 		try {
-			InputStream deflated = new ByteArrayInputStream(Base64.getUrlDecoder().decode(string));
+			var deflated = new ByteArrayInputStream(Base64.getUrlDecoder().decode(string));
 			return new String(toByteArray(new InflaterInputStream(deflated)), UTF_8);
 		}
 		catch (UnsupportedEncodingException e) {
@@ -1163,12 +1171,7 @@ public final class Utils {
 			return null;
 		}
 
-		try {
-			return URLEncoder.encode(string, UTF_8.name());
-		}
-		catch (UnsupportedEncodingException e) {
-			throw new UnsupportedOperationException(ERROR_UNSUPPORTED_ENCODING, e);
-		}
+		return URLEncoder.encode(string, UTF_8);
 	}
 
 	/**
@@ -1183,12 +1186,7 @@ public final class Utils {
 			return null;
 		}
 
-		try {
-			return URLDecoder.decode(string, UTF_8.name());
-		}
-		catch (UnsupportedEncodingException e) {
-			throw new UnsupportedOperationException(ERROR_UNSUPPORTED_ENCODING, e);
-		}
+		return URLDecoder.decode(string, UTF_8);
 	}
 
 	/**
@@ -1196,6 +1194,10 @@ public final class Utils {
 	 * URL query string parameters. {@link URLEncoder} is actually only for www (HTML) form based query string parameter
 	 * values (as used when a webbrowser submits a HTML form). URI encoding has a lot in common with URL encoding, but
 	 * the space has to be %20 and some chars doesn't necessarily need to be encoded.
+	 * <p>
+	 * Since version 4.2 this method is using <a href="https://datatracker.ietf.org/doc/html/rfc3986">RFC 3986</a> rules.
+	 * Previously it was using <a href="https://datatracker.ietf.org/doc/html/rfc2396">RFC 2396</a> rules. The result is
+	 * therefore not per definition exactly the same, but this is supposed to be backwards compatible in modern clients.
 	 * @param string The string to be URI-encoded using UTF-8.
 	 * @return The given string, URI-encoded using UTF-8, or <code>null</code> if <code>null</code> was given.
 	 * @throws UnsupportedOperationException When this platform does not support UTF-8.
@@ -1207,12 +1209,9 @@ public final class Utils {
 		}
 
 		return encodeURL(string)
-			.replace("+", "%20")
-			.replace("%21", "!")
-			.replace("%27", "'")
-			.replace("%28", "(")
-			.replace("%29", ")")
-			.replace("%7E", "~");
+				.replace("+", "%20")
+				.replace("*", "%2A")
+				.replace("%7E", "~");
 	}
 
 	/**
@@ -1225,7 +1224,7 @@ public final class Utils {
 	 * @since 3.0
 	 */
 	public static String formatURLWithQueryString(String url, String queryString) {
-		String normalizedURL = url.isEmpty() ? "/" : url;
+		var normalizedURL = url.isEmpty() ? "/" : url;
 
 		if (isEmpty(queryString)) {
 			return normalizedURL;
@@ -1241,23 +1240,23 @@ public final class Utils {
 	 * @return {@code true} when given URL contains a query string parameter with given name.
 	 * @since 3.14.5
 	 */
-    public static boolean containsQueryStringParameter(String url, String parameterName) {
-        String[] pathAndQueryString = url.split(quote("?"));
+	public static boolean containsQueryStringParameter(String url, String parameterName) {
+		var pathAndQueryString = url.split(quote("?"));
 
-        if (pathAndQueryString.length > 1) {
-            String[] parameters = pathAndQueryString[1].split(quote("&"));
+		if (pathAndQueryString.length > 1) {
+			var parameters = pathAndQueryString[1].split(quote("&"));
 
-            for (String parameter : parameters) {
-                String[] nameAndValue = parameter.split(quote("="));
+			for (var parameter : parameters) {
+				var nameAndValue = parameter.split(quote("="));
 
-                if (nameAndValue.length > 0 && parameterName.equals(decodeURL(nameAndValue[0]))) {
-                    return true;
-                }
-            }
-        }
+				if (nameAndValue.length > 0 && parameterName.equals(decodeURL(nameAndValue[0]))) {
+					return true;
+				}
+			}
+		}
 
-        return false;
-    }
+		return false;
+	}
 
 	// Escaping/unescaping --------------------------------------------------------------------------------------------
 
@@ -1275,9 +1274,9 @@ public final class Utils {
 			return null;
 		}
 
-		StringBuilder builder = new StringBuilder(string.length());
+		var builder = new StringBuilder(string.length());
 
-		for (char c : string.toCharArray()) {
+		for (var c : string.toCharArray()) {
 			if (c > UNICODE_3_BYTES) {
 				builder.append("\\u").append(Integer.toHexString(c));
 			}
@@ -1376,4 +1375,41 @@ public final class Utils {
 		}
 	}
 
+	// Concurrency ----------------------------------------------------------------------------------------------------
+
+	/**
+	 * Atomically execute the given runnable.
+	 * @param lock The lock to be used for atomic execution
+	 * @param task The runnable to be executed atomically
+	 * @since 4.6
+	 */
+	public static void executeAtomically(Lock lock, Runnable task) {
+		lock.lock();
+
+		try {
+			task.run();
+		}
+		finally {
+			lock.unlock();
+		}
+	}
+
+	/**
+	 * Atomically execute the given task and return its result.
+	 * @param <R> The generic result type.
+	 * @param lock The {@link Lock} to be used for atomic execution
+	 * @param task The {@link Supplier} to be executed atomically
+	 * @return The result of the passed task.
+	 * @since 4.6
+	 */
+	public static <R> R executeAtomically(Lock lock, Supplier<R> task) {
+		lock.lock();
+
+		try {
+			return task.get();
+		}
+		finally {
+			lock.unlock();
+		}
+	}
 }

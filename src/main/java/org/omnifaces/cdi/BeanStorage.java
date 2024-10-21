@@ -12,15 +12,19 @@
  */
 package org.omnifaces.cdi;
 
+import org.omnifaces.util.Beans;
+import org.omnifaces.util.BeansLocal;
+
 import static org.omnifaces.util.Beans.destroy;
 
 import java.io.Serializable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.enterprise.context.spi.Contextual;
 import javax.enterprise.context.spi.CreationalContext;
 import javax.enterprise.inject.spi.PassivationCapable;
-
+import org.omnifaces.util.Utils;
 /**
  * CDI bean storage. This class is theoretically reusable for multiple CDI scopes. It's currently however only used by
  * the OmniFaces CDI view scope.
@@ -38,6 +42,7 @@ public class BeanStorage implements Serializable {
 	// Properties -----------------------------------------------------------------------------------------------------
 
 	private final ConcurrentHashMap<String, Serializable> beans;
+	private final ReentrantLock lock = new ReentrantLock();
 
 	// Constructors ---------------------------------------------------------------------------------------------------
 
@@ -86,12 +91,13 @@ public class BeanStorage implements Serializable {
 	/**
 	 * Destroy all beans managed so far.
 	 */
-	public synchronized void destroyBeans() { // Not sure if synchronization is absolutely necessary. Just to be on safe side.
-		for (Object bean : beans.values()) {
-			destroy(bean);
-		}
-
-		beans.clear();
+	public void destroyBeans() {
+		final var manager = Beans.getManager();
+		// Not sure if synchronization is absolutely necessary. Just to be on safe side.
+		Utils.executeAtomically(lock, () -> {
+			beans.values().forEach( (bean) -> BeansLocal.destroy(manager, bean));
+			beans.clear();
+		});
 	}
 
 }

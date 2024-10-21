@@ -97,7 +97,7 @@ import org.omnifaces.util.cache.TimeToLiveCache;
  * evicted following a least recently used policy. The default time to live specifies for how long
  * entries are considered to be valid. A value for the <code>time</code> attribute on this component
  * will override this global default time to live. The following context parameters can be used in web.xml:
- * <table summary="All available context parameters">
+ * <table><caption>All available context parameters</caption>
  * <tr><td class="colFirst">
  * <code>org.omnifaces.CACHE_SETTING_APPLICATION_MAX_CAPACITY</code>
  * </td><td>

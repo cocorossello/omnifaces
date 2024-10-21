@@ -12,14 +12,11 @@
  */
 package org.omnifaces.util.cache;
 
-
 /**
  * A default cache provider that will be used by the OmniFaces Cache component if no explicit provider has been
  * configured.
  * <p>
- * This will create a Cache instance that uses a repackaged {@link com.github.benmanes.caffeine.cache.Cache} for the actual implementation.
- * <p>
- * <b>See:</b> <a href="https://github.com/ben-manes/caffeine">https://github.com/ben-manes/caffeine</a>
+ * This will create a Cache instance that uses a {@link LruCache} for the actual implementation.
  *
  * @since 1.1
  * @author Arjan Tijms

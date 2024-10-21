@@ -12,18 +12,16 @@
  */
 package org.omnifaces.cdi.viewscope;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.RemovalCause;
-import com.github.benmanes.caffeine.cache.RemovalListener;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.enterprise.context.SessionScoped;
 import org.omnifaces.cdi.BeanStorage;
 import org.omnifaces.cdi.ViewScoped;
+import org.omnifaces.util.cache.LruCache;
 
 import java.io.Serializable;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 
 import static java.lang.String.format;
 import static org.omnifaces.cdi.viewscope.ViewScopeManager.DEFAULT_MAX_ACTIVE_VIEW_SCOPES;
@@ -48,10 +46,10 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 
 	private static final long serialVersionUID = 1L;
 	private static final String[] PARAM_NAMES_MAX_ACTIVE_VIEW_SCOPES = {
-		PARAM_NAME_MAX_ACTIVE_VIEW_SCOPES, PARAM_NAME_MOJARRA_NUMBER_OF_VIEWS, PARAM_NAME_MYFACES_NUMBER_OF_VIEWS
+			PARAM_NAME_MAX_ACTIVE_VIEW_SCOPES, PARAM_NAME_MOJARRA_NUMBER_OF_VIEWS, PARAM_NAME_MYFACES_NUMBER_OF_VIEWS
 	};
 	private static final String ERROR_MAX_ACTIVE_VIEW_SCOPES = "The '%s' init param must be a number."
-		+ " Encountered an invalid value of '%s'.";
+			+ " Encountered an invalid value of '%s'.";
 
 	// Static variables -----------------------------------------------------------------------------------------------
 
@@ -59,7 +57,7 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 
 	// Variables ------------------------------------------------------------------------------------------------------
 
-	private Cache<UUID, BeanStorage> activeViewScopes;
+	private ConcurrentMap<UUID, BeanStorage> activeViewScopes;
 
 	// Actions --------------------------------------------------------------------------------------------------------
 
@@ -69,21 +67,18 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	 */
 	@PostConstruct
 	public void postConstructSession() {
-		activeViewScopes = Caffeine.newBuilder()
-			.maximumSize(getMaxActiveViewScopes())
-			.evictionListener(new BeanStorageEvictionListener())
-			.build();
+		activeViewScopes = new LruCache<>(getMaxActiveViewScopes(), (uuid, storage) -> storage.destroyBeans());
 	}
 
 	@Override
 	public UUID getBeanStorageId() {
 		UUID beanStorageId = getViewAttribute(getClass().getName());
-		return beanStorageId != null && activeViewScopes.getIfPresent(beanStorageId) != null ? beanStorageId : null;
+		return beanStorageId != null && activeViewScopes.containsKey(beanStorageId) ? beanStorageId : null;
 	}
 
 	@Override
 	public BeanStorage getBeanStorage(UUID beanStorageId) {
-		return activeViewScopes.getIfPresent(beanStorageId);
+		return activeViewScopes.get(beanStorageId);
 	}
 
 	@Override
@@ -97,11 +92,11 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	 * @param beanStorageId The bean storage identifier.
 	 */
 	public void destroyBeans(UUID beanStorageId) {
-		BeanStorage storage = activeViewScopes.getIfPresent(beanStorageId);
+		var storage = activeViewScopes.get(beanStorageId);
 
 		if (storage != null) {
 			storage.destroyBeans();
-			activeViewScopes.invalidate(beanStorageId);
+			activeViewScopes.remove(beanStorageId);
 		}
 	}
 
@@ -110,7 +105,7 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	 */
 	@PreDestroy
 	public void preDestroySession() {
-		for (BeanStorage storage : activeViewScopes.asMap().values()) {
+		for (var storage : activeViewScopes.values()) {
 			storage.destroyBeans();
 		}
 	}
@@ -127,8 +122,8 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 			return maxActiveViewScopes;
 		}
 
-		for (String name : PARAM_NAMES_MAX_ACTIVE_VIEW_SCOPES) {
-			String value = getInitParameter(name);
+		for (var name : PARAM_NAMES_MAX_ACTIVE_VIEW_SCOPES) {
+			var value = getInitParameter(name);
 
 			if (value != null) {
 				try {
@@ -143,23 +138,6 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 
 		maxActiveViewScopes = DEFAULT_MAX_ACTIVE_VIEW_SCOPES;
 		return maxActiveViewScopes;
-	}
-
-	// Nested classes -------------------------------------------------------------------------------------------------
-
-	/**
-	 * Listener for {@link Cache} which will be invoked when an entry is evicted. It will in turn
-	 * invoke {@link BeanStorage#destroyBeans()}.
-	 */
-	private static final class BeanStorageEvictionListener implements RemovalListener<UUID, BeanStorage>, Serializable {
-
-		private static final long serialVersionUID = 1L;
-
-		@Override
-		public void onRemoval(UUID id, BeanStorage storage, RemovalCause cause) {
-			storage.destroyBeans();
-		}
-
 	}
 
 }

@@ -129,7 +129,7 @@ import org.omnifaces.util.cache.Cache;
  * <h3>Configuration</h3>
  * <p>
  * The following context parameters are available:
- * <table summary="All available context parameters">
+ * <table><caption>All available context parameters</caption>
  * <tr><td class="colFirst">
  * <code>{@value org.omnifaces.resourcehandler.CombinedResourceHandler#PARAM_NAME_EXCLUDED_RESOURCES}</code>
  * </td><td>

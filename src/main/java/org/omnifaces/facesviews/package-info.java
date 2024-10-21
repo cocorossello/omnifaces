@@ -273,7 +273,7 @@
  * <p>
  * The following context parameters are available.
  *
- * <table summary="All available context parameters" border="1" cellspacing="0">
+ * <table><caption>All available context parameters</caption>
  *
  * <tr>
  * <td class="colFirst"><code>{@value org.omnifaces.facesviews.FacesViews#FACES_VIEWS_ENABLED_PARAM_NAME}</code></td>
