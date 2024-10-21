@@ -102,7 +102,7 @@ public class ViewScopeManager {
 
 	private static final String ERROR_VIEW_ALREADY_UNLOADED = "View %s was already unloaded.";
 
-	private Map<String, Boolean> recentlyDestroyedViewStates = new LruCache<>(DEFAULT_MAX_ACTIVE_VIEW_SCOPES);
+	private Map<String, Boolean> recentlyDestroyedViewStates = new LruCache<>(DEFAULT_MAX_ACTIVE_VIEW_SCOPES * 10);
 
 	// Variables ------------------------------------------------------------------------------------------------------
 
