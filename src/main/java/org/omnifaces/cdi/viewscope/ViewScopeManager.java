@@ -48,7 +48,7 @@ import javax.servlet.http.HttpServletRequest;
 
 import org.omnifaces.cdi.BeanStorage;
 import org.omnifaces.cdi.ViewScoped;
-import org.omnifaces.util.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
+import org.omnifaces.util.cache.LruCache;
 
 /**
  * Manages view scoped bean creation and destroy. The creation is initiated by {@link ViewScopeContext} which is
@@ -102,9 +102,7 @@ public class ViewScopeManager {
 
 	private static final String ERROR_VIEW_ALREADY_UNLOADED = "View %s was already unloaded.";
 
-	private Map<String, Boolean> recentlyDestroyedViewStates = new ConcurrentLinkedHashMap.Builder<String, Boolean>()
-			.maximumWeightedCapacity(DEFAULT_MAX_ACTIVE_VIEW_SCOPES)
-			.build();
+	private Map<String, Boolean> recentlyDestroyedViewStates = new LruCache<>(DEFAULT_MAX_ACTIVE_VIEW_SCOPES);
 
 	// Variables ------------------------------------------------------------------------------------------------------
 
