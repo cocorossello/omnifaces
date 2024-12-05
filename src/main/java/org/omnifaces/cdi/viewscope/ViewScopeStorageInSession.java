@@ -46,8 +46,6 @@ import javax.faces.context.FacesContext;
 
 import org.omnifaces.cdi.BeanStorage;
 import org.omnifaces.cdi.ViewScoped;
-import org.omnifaces.util.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
-import org.omnifaces.util.concurrentlinkedhashmap.EvictionListener;
 
 /**
  * Stores view scoped bean instances in a LRU map in HTTP session.
@@ -87,9 +85,7 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	@PostConstruct
 	public void postConstructSession() {
 		activeViewScopes = new LruCache<>(getMaxActiveViewScopes(), (uuid, storage) -> storage.destroyBeans());
-		recentlyUnloadedViewStates = new ConcurrentLinkedHashMap.Builder<String, Boolean>()
-			.maximumWeightedCapacity(getMaxActiveViewScopes())
-			.build();
+		recentlyUnloadedViewStates = new LruCache<>(getMaxActiveViewScopes());
 	}
 
 	@Override
