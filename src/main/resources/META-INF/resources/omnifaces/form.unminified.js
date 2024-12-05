@@ -46,7 +46,8 @@ OmniFaces.Form = (function(Util, window) {
 					var encodedExecuteIds = [];
 
 					if (execute.indexOf("@none") == -1) {
-						executeIds = execute.replace("@this", source.id).split(" ");
+						var sourceId = source instanceof HTMLElement ? source.id : source
+						executeIds = execute.replace("@this", sourceId).split(" ");
 						encodedExecuteIds = executeIds.map(encodeURIComponent);
 						encodedExecuteIds.push(encodeURIComponent(form.id));
 					}
