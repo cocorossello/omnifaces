@@ -8,7 +8,7 @@
 
 	<groupId>org.omnifaces</groupId>
 	<artifactId>omnifaces</artifactId>
-	<version>3.14.9-TRAVELC.1</version>
+	<version>3.14.10-TRAVELC.1</version>
 	<packaging>jar</packaging>
 
 	<name>OmniFaces</name>
@@ -793,6 +793,7 @@
 			<id>release</id>
 			<build>
 				<plugins>
+					<!--
 					<plugin>
 						<groupId>org.sonatype.central</groupId>
 						<artifactId>central-publishing-maven-plugin</artifactId>
@@ -802,7 +803,7 @@
 							<autoPublish>true</autoPublish>
 						</configuration>
 					</plugin>
-
+-->
 					<!-- Signing with GPG is a requirement for a release deployment to Maven central. -->
 					<!--
 					<plugin>
