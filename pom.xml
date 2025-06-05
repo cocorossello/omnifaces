@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project
-		xmlns="http://maven.apache.org/POM/4.0.0"
-		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+	xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
 >
 	<modelVersion>4.0.0</modelVersion>
 
@@ -387,7 +387,7 @@
 				</executions>
 			</plugin>
 
-			<!-- Configure snapshot deployment to GitHub Packages. -->
+			<!-- Configure snapshot deployment (release deployment is done via 'release' profile). -->
 			<!--
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -793,6 +793,15 @@
 			<id>release</id>
 			<build>
 				<plugins>
+					<plugin>
+						<groupId>org.sonatype.central</groupId>
+						<artifactId>central-publishing-maven-plugin</artifactId>
+						<version>0.7.0</version>
+						<extensions>true</extensions>
+						<configuration>
+							<autoPublish>true</autoPublish>
+						</configuration>
+					</plugin>
 
 					<!-- Signing with GPG is a requirement for a release deployment to Maven central. -->
 					<!--
