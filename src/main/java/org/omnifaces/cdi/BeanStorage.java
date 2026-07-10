@@ -44,6 +44,10 @@ public class BeanStorage implements Serializable {
 	private final ConcurrentHashMap<String, Serializable> beans;
 	private final ReentrantLock lock = new ReentrantLock();
 
+	private transient int activeRequests;
+	private transient boolean evicted;
+	private transient boolean destroyed;
+
 	// Constructors ---------------------------------------------------------------------------------------------------
 
 	/**
@@ -89,6 +93,46 @@ public class BeanStorage implements Serializable {
 	}
 
 	/**
+	 * Registers that the current HTTP request has started using this bean storage, which will keep its beans alive
+	 * until {@link #release()}.
+	 * @return <code>false</code> when the beans have meanwhile been destroyed, in which case this bean storage must no
+	 * longer be used.
+	 * @since 3.14.22
+	 */
+	public synchronized boolean acquire() {
+		if (destroyed) {
+			return false;
+		}
+
+		activeRequests++;
+		return true;
+	}
+
+	/**
+	 * Registers that the current HTTP request has finished using this bean storage. When it was meanwhile evicted, and
+	 * this was the last HTTP request using it, then its beans are destroyed.
+	 * @since 3.14.22
+	 */
+	public synchronized void release() {
+		if (--activeRequests == 0 && evicted) {
+			destroyBeans();
+		}
+	}
+
+	/**
+	 * Registers that this bean storage has been evicted. Its beans are destroyed immediately when no HTTP request is
+	 * currently using it, otherwise the last HTTP request finishing with it will destroy them.
+	 * @since 3.14.22
+	 */
+	public synchronized void evict() {
+		evicted = true;
+
+		if (activeRequests == 0) {
+			destroyBeans();
+		}
+	}
+
+	/**
 	 * Destroy all beans managed so far.
 	 */
 	public void destroyBeans() {
@@ -97,7 +141,8 @@ public class BeanStorage implements Serializable {
 		Utils.executeAtomically(lock, () -> {
 			beans.values().forEach( (bean) -> BeansLocal.destroy(manager, bean));
 			beans.clear();
-		});
+            destroyed = true;
+        });
 	}
 
 }

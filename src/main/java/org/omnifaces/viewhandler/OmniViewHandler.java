@@ -14,6 +14,7 @@ package org.omnifaces.viewhandler;
 
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static javax.faces.render.ResponseStateManager.VIEW_STATE_PARAM;
 import static org.omnifaces.cdi.viewscope.ViewScopeManager.isUnloadRequest;
 import static org.omnifaces.resourcehandler.ViewResourceHandler.isViewResourceRequest;
 import static org.omnifaces.taghandler.EnableRestorableView.isRestorableView;
@@ -21,19 +22,30 @@ import static org.omnifaces.taghandler.EnableRestorableView.isRestorableViewRequ
 import static org.omnifaces.util.Components.buildView;
 import static org.omnifaces.util.Faces.isPrefixMapping;
 import static org.omnifaces.util.Faces.responseComplete;
+import static org.omnifaces.util.Faces.setContext;
 import static org.omnifaces.util.FacesLocal.getMimeType;
 import static org.omnifaces.util.FacesLocal.getRenderKit;
+import static org.omnifaces.util.FacesLocal.getRequestParameter;
 import static org.omnifaces.util.FacesLocal.getRequestServletPath;
 import static org.omnifaces.util.FacesLocal.getRequestURIWithQueryString;
 import static org.omnifaces.util.FacesLocal.getServletContext;
+import static org.omnifaces.util.FacesLocal.getSessionAttribute;
+import static org.omnifaces.util.FacesLocal.hasSession;
 import static org.omnifaces.util.FacesLocal.isAjaxRequest;
 import static org.omnifaces.util.FacesLocal.isDevelopment;
 import static org.omnifaces.util.FacesLocal.isSessionNew;
+import static org.omnifaces.util.FacesLocal.normalizeViewId;
 import static org.omnifaces.util.FacesLocal.redirectPermanent;
 import static org.omnifaces.util.Platform.getDefaultFacesServletMapping;
 
 import java.io.IOException;
+import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import javax.faces.FacesException;
 import javax.faces.application.ViewExpiredException;
@@ -47,12 +59,14 @@ import javax.faces.context.ExternalContextWrapper;
 import javax.faces.context.FacesContext;
 import javax.faces.context.FacesContextWrapper;
 import javax.faces.event.PreDestroyViewMapEvent;
+import javax.faces.render.RenderKit;
 import javax.faces.render.ResponseStateManager;
 
 import org.omnifaces.cdi.ViewScoped;
 import org.omnifaces.cdi.viewscope.ViewScopeManager;
 import org.omnifaces.resourcehandler.ViewResourceHandler;
 import org.omnifaces.taghandler.EnableRestorableView;
+import org.omnifaces.util.FacesLocal;
 import org.omnifaces.util.Hacks;
 
 /**
@@ -85,6 +99,8 @@ public class OmniViewHandler extends ViewHandlerWrapper {
 	private static final String ERROR_NESTED_FORM_ENCOUNTERED =
 		"Nested form with ID '%s' encountered inside parent form with ID '%s'. This is illegal in HTML.";
 
+	private static final String SESSION_ATTRIBUTE_PENDING_VIEW_STATE_REMOVALS = "omnifaces.PendingViewStateRemovals";
+
 	// Constructors ---------------------------------------------------------------------------------------------------
 
 	/**
@@ -98,8 +114,17 @@ public class OmniViewHandler extends ViewHandlerWrapper {
 	// Actions --------------------------------------------------------------------------------------------------------
 
 	/**
+	 * If there are any pending view state removals from unload requests then perform them.
+	 */
+	@Override
+	public UIViewRoot createView(FacesContext context, String viewId) {
+		performPendingViewStateRemovals(context);
+		return super.createView(context, viewId);
+	}
+
+	/**
 	 * If the current request is an unload request from {@link ViewScoped}, then create a dummy view, restore only the
-	 * view root state and then immediately explicitly destroy the view, else restore the view as usual. If the
+	 * view root state and then immediately explicitly destroy the view scoped beans, else restore the view as usual. If the
 	 * <code>&lt;o:enableRestoreView&gt;</code> is used once in the application, and the restored view is null and the
 	 * current request is a postback, then recreate and rebuild the view from scratch. If it indeed contains the
 	 * <code>&lt;o:enableRestoreView&gt;</code>, then return the newly created view, else return <code>null</code>.
@@ -154,18 +179,22 @@ public class OmniViewHandler extends ViewHandlerWrapper {
 
 	/**
 	 * Create a dummy view, restore only the view root state and, if present, then immediately explicitly destroy the
-	 * view state. Or, if the session is new (during an unload request, it implies it had expired), then explicitly send
-	 * a permanent redirect to the original request URI. This way any authentication framework which remembers the "last
-	 * requested restricted URL" will redirect back to correct (non-unload) URL after login on a new session.
+	 * view scoped beans. The actual {@link Hacks#removeViewState(FacesContext, ResponseStateManager, String)} call is
+	 * deferred to the next {@link #createView(FacesContext, String)} call via
+	 * {@link #registerPendingViewStateRemoval(FacesContext, UIViewRoot)}, so that the unload beacon no longer
+	 * concurrently mutates the session and last-writer-wins conflicts in distributed session stores are prevented (see
+	 * issue #941). Or, if the session is new (during an unload request, it implies it had expired), then explicitly
+	 * send a permanent redirect to the original request URI. This way any authentication framework which remembers the
+	 * "last requested restricted URL" will redirect back to correct (non-unload) URL after login on a new session.
 	 */
 	private UIViewRoot unloadView(FacesContext context, String viewId) {
-		UIViewRoot createdView = createView(context, viewId);
+		UIViewRoot createdView = super.createView(context, viewId);
 		ResponseStateManager manager = getRenderKit(context).getResponseStateManager();
 
 		if (restoreViewRootState(context, manager, createdView)) {
 			context.setProcessingEvents(true);
 			context.getApplication().publishEvent(context, PreDestroyViewMapEvent.class, UIViewRoot.class, createdView);
-			Hacks.removeViewState(context, manager, viewId);
+			registerPendingViewStateRemoval(context, createdView);
 		}
 		else if (isSessionNew(context)) {
 			redirectPermanent(context, getRequestURIWithQueryString(context));
@@ -205,12 +234,52 @@ public class OmniViewHandler extends ViewHandlerWrapper {
 		}
 
 		if (viewRootState != null) {
+			String viewId = view.getViewId();
 			view.restoreState(context, viewRootState);
+			view.setViewId(viewId);
 			context.setViewRoot(view);
 			return true;
 		}
 
 		return false;
+	}
+
+	private static void registerPendingViewStateRemoval(FacesContext context, UIViewRoot view) {
+		getSessionAttribute(context, SESSION_ATTRIBUTE_PENDING_VIEW_STATE_REMOVALS, ConcurrentLinkedQueue<Entry<String, String>>::new)
+			.add(new SimpleImmutableEntry<>(getRequestParameter(context, VIEW_STATE_PARAM), view.getViewId()));
+	}
+
+	private void performPendingViewStateRemovals(FacesContext context) {
+		if (hasSession(context)) {
+			Queue<Entry<String, String>> queue = getSessionAttribute(context, SESSION_ATTRIBUTE_PENDING_VIEW_STATE_REMOVALS);
+
+			if (queue != null && !queue.isEmpty()) {
+				// Eagerly create the ELContext while the real FacesContext is still the current instance. The loop below
+				// temporarily swaps in a RemoveViewStateFacesContext via setContext(). MyFaces binds and caches the request
+				// ELContext to whichever FacesContext is the current instance when getELContext() is first called, so
+				// creating it here prevents it from being bound to the temporary wrapper for the remainder of the request.
+				context.getELContext();
+
+				Entry<String, String> pending;
+
+				while ((pending = queue.poll()) != null) {
+					UIViewRoot unloadViewRoot = super.createView(context, normalizeViewId(context, pending.getValue()));
+					ResponseStateManager manager = getRenderKit(context).getResponseStateManager();
+					RemoveViewStateFacesContext temporaryContext = new RemoveViewStateFacesContext(context, unloadViewRoot, pending.getKey());
+
+					try {
+						setContext(temporaryContext);
+
+						if (restoreViewRootState(temporaryContext, manager, unloadViewRoot)) {
+							Hacks.removeViewState(temporaryContext, manager, unloadViewRoot.getViewId());
+						}
+					}
+					finally {
+						setContext(context);
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -248,6 +317,62 @@ public class OmniViewHandler extends ViewHandlerWrapper {
 	}
 
 	// Inner classes -------------------------------------------------------------------------------------------------
+
+	private static class RemoveViewStateFacesContext extends FacesContextWrapper {
+
+		private static final int ATTRIBUTES_SET_DURING_REMOVE_VIEW_STATE = 4;
+
+		private UIViewRoot viewRoot;
+		private final Map<Object, Object> attributes;
+		private final ExternalContext externalContext;
+
+		public RemoveViewStateFacesContext(FacesContext wrapped, UIViewRoot viewRoot, String viewState) {
+			super(wrapped);
+			this.viewRoot = viewRoot;
+			this.attributes = new HashMap<>(ATTRIBUTES_SET_DURING_REMOVE_VIEW_STATE);
+			this.externalContext = new RemoveViewStateExternalContext(wrapped.getExternalContext(), viewState);
+		}
+
+		@Override
+		public UIViewRoot getViewRoot() {
+			return viewRoot;
+		}
+
+		@Override
+		public void setViewRoot(UIViewRoot viewRoot) {
+			this.viewRoot = viewRoot;
+		}
+
+		@Override
+		public Map<Object, Object> getAttributes() {
+			return attributes;
+		}
+
+		@Override
+		public ExternalContext getExternalContext() {
+			return externalContext;
+		}
+
+		@Override
+		public RenderKit getRenderKit() {
+			return FacesLocal.getRenderKit(this);
+		}
+	}
+
+	private static class RemoveViewStateExternalContext extends ExternalContextWrapper {
+
+		private final Map<String, String> requestParameterMap;
+
+		private RemoveViewStateExternalContext(ExternalContext wrapped, String viewState) {
+			super(wrapped);
+			this.requestParameterMap = Collections.singletonMap(VIEW_STATE_PARAM, viewState);
+		}
+
+		@Override
+		public Map<String, String> getRequestParameterMap() {
+			return requestParameterMap;
+		}
+	}
 
 	private static class RenderViewResourceFacesContext extends FacesContextWrapper {
 
