@@ -89,7 +89,7 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	 */
 	@PostConstruct
 	public void postConstructSession() {
-		activeViewScopes = new LruCache<>(getMaxActiveViewScopes(), (uuid, storage) -> storage.destroyBeans());
+		activeViewScopes = new LruCache<>(getMaxActiveViewScopes(), (uuid, storage) -> storage.evict());
 		recentlyUnloadedViewStates = new LruCache<>(getMaxActiveViewScopes());
 	}
 
