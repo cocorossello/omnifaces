@@ -114,7 +114,7 @@ public class BeanStorage implements Serializable {
 	 * @since 3.14.22
 	 */
 	public synchronized void release() {
-		if (--activeRequests == 0 && evicted) {
+		if (activeRequests > 0 && --activeRequests == 0 && evicted) {
 			destroyBeans();
 		}
 	}
@@ -133,7 +133,7 @@ public class BeanStorage implements Serializable {
 	}
 
 	/**
-	 * Destroy all beans managed so far.
+	 * Destroy all beans managed so far. This is a no-op when they have already been destroyed.
 	 */
 	public void destroyBeans() {
 		final var manager = Beans.getManager();
