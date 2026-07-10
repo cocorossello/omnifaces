@@ -139,6 +139,10 @@ public class BeanStorage implements Serializable {
 		final var manager = Beans.getManager();
 		// Not sure if synchronization is absolutely necessary. Just to be on safe side.
 		Utils.executeAtomically(lock, () -> {
+			if (destroyed) {
+				return;
+			}
+
 			beans.values().forEach( (bean) -> BeansLocal.destroy(manager, bean));
 			beans.clear();
             destroyed = true;
