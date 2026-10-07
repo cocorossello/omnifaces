@@ -123,7 +123,8 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 	}
 
 	/**
-	 * Destroys all beans associated with given bean storage identifier.
+	 * Destroys all beans associated with given bean storage identifier. When a concurrent HTTP request is still using
+	 * them, then they are destroyed as soon as the last one has finished. See {@link ActiveBeanStorages}.
      * @param context The involved faces context.
 	 * @param beanStorageId The bean storage identifier.
 	 */
@@ -135,8 +136,7 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
         var storage = activeViewScopes.get(beanStorageId);
 
 		if (storage != null) {
-			storage.destroyBeans();
-			activeViewScopes.remove(beanStorageId);
+			storage.evict();
 		}
 
 		ActiveBeanStorages activeBeanStorages = getActiveBeanStorages(false);
@@ -144,6 +144,8 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 		if (activeBeanStorages != null) {
 			activeBeanStorages.release(beanStorageId); // The view scope is explicitly gone, so the current request must no longer resolve it.
 		}
+
+		activeViewScopes.remove(beanStorageId);
 	}
 
 	/**
@@ -262,10 +264,11 @@ public class ViewScopeStorageInSession implements ViewScopeStorage, Serializable
 		 * @param beanStorageId The bean storage identifier.
 		 */
 		protected void release(UUID beanStorageId) {
-			BeanStorage beanStorage = beanStorages.remove(beanStorageId);
+			BeanStorage beanStorage = beanStorages.get(beanStorageId);
 
 			if (beanStorage != null) {
 				beanStorage.release();
+				beanStorages.remove(beanStorageId);
 			}
 		}
 
